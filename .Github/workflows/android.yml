@@ -1,0 +1,77 @@
+name: Validar e compilar UNEX PLAY
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Instalar Flutter estável
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Gera os arquivos de plataforma Android padrão do Flutter no runner.
+      # Os arquivos Dart e a configuração de dependências são preservados.
+      - name: Preparar plataforma Android
+        shell: bash
+        run: |
+          mkdir -p /tmp/unex-backup
+          cp pubspec.yaml /tmp/unex-backup/pubspec.yaml
+          cp -R lib /tmp/unex-backup/lib
+          cp -R test /tmp/unex-backup/test
+          cp analysis_options.yaml /tmp/unex-backup/analysis_options.yaml
+          flutter create --platforms=android --org com.unexplay --project-name unex_play --overwrite .
+          cp /tmp/unex-backup/pubspec.yaml pubspec.yaml
+          rm -rf lib test
+          cp -R /tmp/unex-backup/lib lib
+          cp -R /tmp/unex-backup/test test
+          cp /tmp/unex-backup/analysis_options.yaml analysis_options.yaml
+          cp tooling/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          flutter pub get
+
+      - name: Formatar código Dart
+        run: dart format lib test
+
+      - name: Análise estática
+        run: flutter analyze
+
+      - name: Testes automatizados
+        run: flutter test --reporter expanded
+
+      - name: Compilar APK debug
+        run: flutter build apk --debug
+
+      - name: Compilar APK release sem assinatura personalizada
+        run: flutter build apk --release
+
+      - name: Compilar AAB
+        run: flutter build appbundle --release
+
+      - name: Publicar artefatos
+        uses: actions/upload-artifact@v4
+        with:
+          name: unex-play-android
+          path: |
+            build/app/outputs/flutter-apk/app-debug.apk
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
